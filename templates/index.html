@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Note Summarizer</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            cursor: none;
+        }
+        
+        body {
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            background: #1e1e1e;
+            color: #cccccc;
+            min-height: 100vh;
+            padding: 40px 20px;
+            overflow-x: hidden;
+        }
+        
+        /* Custom Cursor */
+        #cursor {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #00ff85;
+            border-radius: 50%;
+            position: fixed;
+            pointer-events: none;
+            z-index: 9999;
+            transition: transform 0.15s ease, border-color 0.2s ease;
+            transform: translate(-50%, -50%);
+        }
+        
+        #cursor.clicking {
+            transform: translate(-50%, -50%) scale(0.8);
+            border-color: #ff3366;
+        }
+        
+        /* Scanline Effect - Subtle */
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.05),
+                rgba(0, 0, 0, 0.05) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 1000;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* Vim-style Header */
+        h1 {
+            color: #00ff85;
+            font-size: 24px;
+            margin-bottom: 5px;
+            letter-spacing: 1px;
+            font-weight: 400;
+        }
+        
+        .vim-info {
+            color: #666666;
+            font-size: 14px;
+            margin-bottom: 30px;
+            font-style: italic;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+            position: relative;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #00ff85;
+            font-size: 14px;
+            font-weight: 400;
+        }
+        
+        /* Vim-style Line Numbers */
+        .editor-wrapper {
+            position: relative;
+            display: flex;
+        }
+        
+        .line-numbers {
+            background: #252525;
+            color: #666666;
+            padding: 16px 12px;
+            font-size: 14px;
+            line-height: 1.6;
+            text-align: right;
+            user-select: none;
+            border: 1px solid #333333;
+            border-right: none;
+        }
+        
+        textarea {
+            flex: 1;
+            padding: 16px;
+            background: #1e1e1e;
+            border: 1px solid #333333;
+            color: #cccccc;
+            font-size: 14px;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            resize: vertical;
+            transition: border-color 0.2s ease;
+            line-height: 1.6;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #00ff85;
+            background: #252525;
+        }
+        
+        textarea::placeholder {
+            color: #666666;
+        }
+        
+        /* Vim Status Bar */
+        .status-bar {
+            background: #00ff85;
+            color: #1e1e1e;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 700;
+            display: flex;
+            justify-content: space-between;
+            margin-top: -1px;
+            border: 1px solid #00ff85;
+        }
+        
+        .mode {
+            text-transform: uppercase;
+        }
+        
+        /* Command Button */
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #1e1e1e;
+            color: #00ff85;
+            border: 1px solid #00ff85;
+            font-size: 14px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.2s ease;
+            margin-top: 15px;
+        }
+        
+        button:hover:not(:disabled) {
+            background: #00ff85;
+            color: #1e1e1e;
+        }
+        
+        button:active:not(:disabled) {
+            transform: scale(0.98);
+        }
+        
+        button:disabled {
+            background: #252525;
+            color: #666666;
+            border-color: #333333;
+        }
+        
+        /* Loading */
+        .loading {
+            text-align: center;
+            margin-top: 20px;
+            color: #00ff85;
+            font-size: 14px;
+            display: none;
+        }
+        
+        .loading.show {
+            display: block;
+        }
+        
+        .loading::before {
+            content: '[';
+            margin-right: 5px;
+        }
+        
+        .loading::after {
+            content: ']';
+            margin-left: 5px;
+            animation: blink 1s step-end infinite;
+        }
+        
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+        
+        /* Error */
+        .error {
+            color: #ff3366;
+            background: #2a1a1f;
+            padding: 12px 16px;
+            border: 1px solid #ff3366;
+            margin-top: 15px;
+            display: none;
+            font-size: 13px;
+        }
+        
+        .error.show {
+            display: block;
+        }
+        
+        .error::before {
+            content: 'ERROR: ';
+            font-weight: 700;
+        }
+        
+        /* Result */
+        .result {
+            margin-top: 30px;
+            display: none;
+        }
+        
+        .result.show {
+            display: block;
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .result h2 {
+            color: #00ff85;
+            font-size: 16px;
+            margin-bottom: 10px;
+            font-weight: 400;
+        }
+        
+        .summary-box {
+            background: #252525;
+            border: 1px solid #333333;
+            padding: 20px;
+        }
+        
+        .summary-text {
+            line-height: 1.8;
+            color: #cccccc;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        
+        .stats {
+            padding-top: 15px;
+            border-top: 1px solid #333333;
+            font-size: 13px;
+            color: #666666;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+        }
+        
+        .stat-item {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .stat-label {
+            color: #666666;
+        }
+        
+        .stat-value {
+            color: #00ff85;
+            font-weight: 700;
+        }
+        
+        /* Command Hint */
+        .command-hint {
+            color: #666666;
+            font-size: 12px;
+            margin-top: 10px;
+            text-align: center;
+        }
+        
+        .command-hint span {
+            color: #00ff85;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+    <!-- Custom Cursor -->
+    <div id="cursor"></div>
+    
+    <div class="container">
+        <h1>~/ai-note-summarizer</h1>
+        <div class="vim-info">"main.txt" [Modified]</div>
+        
+        <div class="form-group">
+            <label>INPUT</label>
+            <div class="editor-wrapper">
+                <div class="line-numbers" id="lineNumbers">1</div>
+                <textarea id="text" rows="12" placeholder="Enter text to summarize..."></textarea>
+            </div>
+            <div class="status-bar">
+                <span class="mode">-- INSERT --</span>
+                <span id="charCount">0 characters</span>
+            </div>
+        </div>
+        
+        <button id="summarizeBtn" onclick="summarizeText()">:summarize</button>
+        <div class="command-hint">Tip: Press <span>Ctrl+Enter</span> to execute</div>
+        
+        <div class="loading" id="loading">
+            Processing
+        </div>
+        
+        <div class="error" id="error"></div>
+        
+        <div class="result" id="result">
+            <h2>OUTPUT</h2>
+            <div class="summary-box">
+                <div class="summary-text" id="summaryText"></div>
+                <div class="stats" id="stats"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Custom Cursor
+        const cursor = document.getElementById('cursor');
+        let mouseX = 0;
+        let mouseY = 0;
+        
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+            cursor.style.left = mouseX + 'px';
+            cursor.style.top = mouseY + 'px';
+        });
+        
+        document.addEventListener('mousedown', () => {
+            cursor.classList.add('clicking');
+        });
+        
+        document.addEventListener('mouseup', () => {
+            cursor.classList.remove('clicking');
+        });
+        
+        // Line Numbers
+        const textarea = document.getElementById('text');
+        const lineNumbers = document.getElementById('lineNumbers');
+        const charCount = document.getElementById('charCount');
+        
+        function updateLineNumbers() {
+            const lines = textarea.value.split('\n').length;
+            const numbers = [];
+            for (let i = 1; i <= lines; i++) {
+                numbers.push(i);
+            }
+            lineNumbers.textContent = numbers.join('\n');
+            
+            // Update character count
+            const chars = textarea.value.length;
+            const words = textarea.value.trim().split(/\s+/).filter(w => w.length > 0).length;
+            charCount.textContent = `${words} words, ${chars} chars`;
+        }
+        
+        textarea.addEventListener('input', updateLineNumbers);
+        textarea.addEventListener('scroll', () => {
+            lineNumbers.scrollTop = textarea.scrollTop;
+        });
+        
+        // Summarize Function
+        async function summarizeText() {
+            const text = document.getElementById('text').value;
+            const btn = document.getElementById('summarizeBtn');
+            const loading = document.getElementById('loading');
+            const result = document.getElementById('result');
+            const error = document.getElementById('error');
+            
+            result.classList.remove('show');
+            error.classList.remove('show');
+            
+            if (!text.trim()) {
+                error.textContent = 'No text provided';
+                error.classList.add('show');
+                return;
+            }
+            
+            btn.disabled = true;
+            loading.classList.add('show');
+            
+            try {
+                const response = await fetch('/summarize', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ text: text })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('summaryText').textContent = data.summary;
+                    
+                    const reduction = Math.round((1 - data.summary_length/data.original_length) * 100);
+                    document.getElementById('stats').innerHTML = `
+                        <div class="stat-item">
+                            <span class="stat-label">Original:</span>
+                            <span class="stat-value">${data.original_length} words</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Summary:</span>
+                            <span class="stat-value">${data.summary_length} words</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Reduction:</span>
+                            <span class="stat-value">${reduction}%</span>
+                        </div>
+                    `;
+                    result.classList.add('show');
+                } else {
+                    error.textContent = data.error || 'An error occurred';
+                    error.classList.add('show');
+                }
+            } catch (err) {
+                error.textContent = 'Failed to connect to server';
+                error.classList.add('show');
+            } finally {
+                btn.disabled = false;
+                loading.classList.remove('show');
+            }
+        }
+        
+        // Keyboard shortcut
+        document.getElementById('text').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                summarizeText();
+            }
+        });
+    </script>
+</body>
+</html>
